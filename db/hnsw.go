@@ -1,25 +1,50 @@
 package db
 
 import (
-	"log"
-
 	hnsw "github.com/Bithack/go-hnsw"
 )
 
+const HnswGrowSize = 1000
+
 type HNSWIndex struct {
 	*hnsw.Hnsw
-	cfg *HNSWCfg
-	dim int
+	size uint32
+	id   uint32
+}
+
+func (h *HNSWIndex) Add(point hnsw.Point, id uint32) {
+	if id > h.size {
+		h.Grow(HnswGrowSize)
+		h.size += HnswGrowSize
+	}
+	h.Hnsw.Add(point, id)
+	h.id = id
+}
+
+func (h *HNSWIndex) ID() uint32 {
+	return h.id
+}
+
+func (h *HNSWIndex) Size() uint32 {
+	return h.size
 }
 
 func NewHNSWIndex(cfg *HNSWCfg, dim int) *HNSWIndex {
 	zero := make([]float32, dim)
 	index := hnsw.New(cfg.M, cfg.EfConstruction, zero)
-	log.Printf("hnswindex, dim: %d", dim)
-	index.Grow(2)
 	return &HNSWIndex{
 		Hnsw: index,
-		cfg:  cfg,
-		dim:  dim,
 	}
+}
+
+func NewHNSWIndexFromFile(file string, size, id uint32) (*HNSWIndex, error) {
+	index, _, err := hnsw.Load(file)
+	if err != nil {
+		return nil, err
+	}
+	return &HNSWIndex{
+		Hnsw: index,
+		size: size,
+		id:   id,
+	}, nil
 }

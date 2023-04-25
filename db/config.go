@@ -12,8 +12,13 @@ type CohereCfg struct {
 }
 
 type DbCfg struct {
-	Dir  string
-	Name string
+	Dir              string
+	Name             string
+	PostgresUsername string
+	PostgresPassword string
+	PostresPort      uint32
+	FerretDBTcp      string
+	FerretDBHandler  string
 }
 
 type HNSWCfg struct {

@@ -12,24 +12,75 @@ import (
 const InternalDocName = "_m_doc"
 const InternalIdName = "_m_id"
 
-var ErrFieldLengthMismatch error = errors.New("documents and metadatas are mismatch")
+var (
+	ErrCollectionNotFound  = errors.New("collection not found")
+	ErrFieldLengthMismatch = errors.New("documents and metadatas are mismatch")
+	ErrMetaCorrupted       = errors.New("meta corrupted")
+)
 
 type DB struct {
 	*mongo.Database
 	collections map[string]*Collection
 	cfg         *Config
+	meta        *Meta
 }
 
-func (db *DB) CreateCollection(name string) (*Collection, error) {
+func (db *DB) CreateCollection(ctx context.Context, name string) (*Collection, error) {
+	err := db.Database.CreateCollection(ctx, name)
+	if err != nil {
+		return nil, err
+	}
 	c := db.Database.Collection(name)
-	return NewCollection(c, name, db.cfg)
+	collection, err := NewCollection(ctx, db.meta, c, name, db.cfg)
+	if err != nil {
+		return nil, err
+	}
+	db.collections[name] = collection
+	return collection, nil
 }
 
-func NewDB(docdb *mongo.Database, cfg *Config) *DB {
+func (db *DB) GetCollection(ctx context.Context, name string) (*Collection, error) {
+	if collection, ok := db.collections[name]; ok {
+		return collection, nil
+	}
+
+	collectionNames, err := db.Database.ListCollectionNames(ctx, bson.M{"name": name})
+	if err != nil {
+		return nil, err
+	}
+
+	if collectionNames == nil || len(collectionNames) == 0 {
+		return nil, ErrCollectionNotFound
+	}
+
+	c := db.Database.Collection(name)
+	collection, err := NewCollection(ctx, db.meta, c, name, db.cfg)
+	if err != nil {
+		return nil, err
+	}
+	db.collections[name] = collection
+	return collection, nil
+}
+
+func (db *DB) DropCollection(ctx context.Context, name string) error {
+	err := db.Database.Collection(name).Drop(ctx)
+	if err != nil {
+		return err
+	}
+	err = db.meta.Drop(ctx, name)
+	if err != nil {
+		return err
+	}
+	delete(db.collections, name)
+	return nil
+}
+
+func NewDB(meta *Meta, docdb *mongo.Database, cfg *Config) *DB {
 	return &DB{
 		Database:    docdb,
 		collections: make(map[string]*Collection),
 		cfg:         cfg,
+		meta:        meta,
 	}
 }
 
@@ -54,6 +105,8 @@ type Collection struct {
 	index     *HNSWIndex
 	embedding *CohereEmbedding
 	id        uint32
+	meta      *Meta
+	cfg       *Config
 }
 
 func (c *Collection) Insert(data *Data) error {
@@ -121,7 +174,6 @@ func (c *Collection) Query(document string, k int, filter interface{}) ([]bson.M
 	var res []bson.M
 	for {
 		item := ids.Pop()
-		log.Printf("result: %v", item.ID)
 		if item == nil {
 			break
 		}
@@ -150,16 +202,98 @@ func (c *Collection) Query(document string, k int, filter interface{}) ([]bson.M
 	return res, nil
 }
 
-func NewCollection(collection *mongo.Collection, name string, cfg *Config) (*Collection, error) {
+func (c *Collection) getNextID(ctx context.Context) (uint32, error) {
+	sortStage := bson.D{{"$sort", bson.D{{InternalIdName, 1}}}}
+	limitStage := bson.D{{"$limit", 1}}
+	r, err := c.Collection.Aggregate(ctx, mongo.Pipeline{sortStage, limitStage})
+	if err != nil {
+		return 0, err
+	}
+
+	if r.Err() == mongo.ErrNoDocuments {
+		return 0, nil
+	}
+
+	if r.Err() != nil {
+		log.Printf("error: %v", r.Err())
+	} else {
+		log.Printf("there is no error for aggregate")
+	}
+
+	var res []bson.M
+	if err := r.All(ctx, &res); err != nil {
+		return 0, err
+	}
+
+	if len(res) == 0 {
+		return 0, nil
+	}
+
+	return res[0]["max"].(uint32), nil
+}
+
+func (c *Collection) loadIndexIfExists(ctx context.Context) error {
+	m := c.meta.Read(ctx, c.name)
+	if m.Err() == mongo.ErrNoDocuments {
+		c.index = NewHNSWIndex(&c.cfg.HNSW, CohereModel2Dim[c.cfg.Cohere.Model])
+		return nil
+	}
+
+	var res bson.M
+	if err := m.Decode(&res); err != nil {
+		return err
+	}
+
+	pathValue := res[HnswIndexPathKey]
+	idValue := res[HnswIdKey]
+	sizeValue := res[HnswSizeKey]
+
+	if pathValue == nil || idValue == nil || sizeValue == nil {
+		return ErrMetaCorrupted
+	}
+
+	indexfile := pathValue.(string)
+	id := idValue.(uint32)
+	size := sizeValue.(uint32)
+	index, err := NewHNSWIndexFromFile(indexfile, size, id)
+	if err != nil {
+		return err
+	}
+	c.index = index
+	return nil
+}
+
+func (c *Collection) init(ctx context.Context) error {
+	id, err := c.getNextID(ctx)
+	if err != nil {
+		return err
+	}
+	c.id = id
+
+	if err := c.loadIndexIfExists(ctx); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func NewCollection(ctx context.Context, meta *Meta, collection *mongo.Collection, name string, cfg *Config) (*Collection, error) {
 	embedding, err := NewCohereEmbedding(&cfg.Cohere)
 	if err != nil {
 		return nil, err
 	}
-	return &Collection{
+	c := &Collection{
 		Collection: collection,
 		index:      NewHNSWIndex(&cfg.HNSW, CohereModel2Dim[cfg.Cohere.Model]),
 		name:       name,
 		embedding:  embedding,
-		id:         0,
-	}, nil
+		meta:       meta,
+		cfg:        cfg,
+	}
+
+	err = c.init(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return c, nil
 }
