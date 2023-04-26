@@ -13,7 +13,7 @@ At present, you can utilize this project in a Golang application, and we will so
 Currently, we only support insertion and querying functions, and you can use any document query language when querying. The data will be automatically persisted on disk and can be recovered upon the next opening.
 
 You can find codes in main.go.
-```
+```golang
 kaer, err := db.CreateKaer(&cfg)
 if err != nil {
 	log.Fatal(err)
