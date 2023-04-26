@@ -3,10 +3,10 @@ module github.com/sunby/kaer
 go 1.18
 
 require (
-	github.com/Bithack/go-hnsw v0.0.0-20170629124716-52a932462077
 	github.com/FerretDB/FerretDB v1.0.0
 	github.com/cohere-ai/cohere-go v0.2.0
 	github.com/fergusstrange/embedded-postgres v1.21.0
+	github.com/sunby/go-hnsw v0.0.0-20230426103814-5658b9c4afe9
 	go.mongodb.org/mongo-driver v1.11.4
 )
 
@@ -17,6 +17,7 @@ require (
 	github.com/SAP/go-hdb v1.1.6 // indirect
 	github.com/apapsch/go-jsonmerge/v2 v2.0.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
+	github.com/bits-and-blooms/bitset v1.7.0 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/cohere-ai/tokenizer v1.1.1 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
@@ -63,7 +64,6 @@ require (
 	github.com/prometheus/procfs v0.9.0 // indirect
 	github.com/stretchr/testify v1.8.2 // indirect
 	github.com/tigrisdata/tigris-client-go v1.0.0-beta.25 // indirect
-	github.com/willf/bitset v1.1.11 // indirect
 	github.com/xdg-go/pbkdf2 v1.0.0 // indirect
 	github.com/xdg-go/scram v1.1.1 // indirect
 	github.com/xdg-go/stringprep v1.0.3 // indirect

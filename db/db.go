@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 
+	"github.com/sunby/go-hnsw"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 )
@@ -162,42 +163,54 @@ func (c *Collection) getEmbeddings(data *Data) ([][]float32, error) {
 	return res, nil
 }
 
+func getHnswFilterFunc(collection *Collection, filter interface{}) hnsw.FilterFunc {
+	return func(id uint32) bool {
+		andFilter := bson.D{
+			{"$and",
+				bson.A{
+					bson.D{{InternalIdName, id}},
+					filter,
+				},
+			},
+		}
+		var doc bson.M
+		docres := collection.FindOne(context.TODO(), andFilter)
+		if docres.Err() == mongo.ErrNoDocuments {
+			return false
+		}
+		err := docres.Decode(&doc)
+		if err != nil {
+			log.Printf("decode error: %v", err)
+			return false
+		}
+		return true
+	}
+}
 func (c *Collection) Query(document string, k int, filter interface{}) ([]bson.M, error) {
 	embedding, err := c.embedding.GetEmbedding([]string{document})
 	if err != nil {
 		return nil, err
 	}
-	ids := c.index.Search(embedding[0], 10*k, k)
-	if err != nil {
-		return nil, err
-	}
+	ids := c.index.Search(embedding[0], 10*k, k, getHnswFilterFunc(c, filter))
 	var res []bson.M
 	for {
 		item := ids.Pop()
 		if item == nil {
 			break
 		}
-		andFilter := bson.D{
-			{"$and",
-				bson.A{
-					bson.D{{InternalIdName, item.ID}},
-					filter,
-				},
-			},
-		}
+		filter := bson.D{{InternalIdName, item.ID}}
+		docres := c.FindOne(context.TODO(), filter)
 		var doc bson.M
-		docres := c.FindOne(context.Background(), andFilter)
 		if docres.Err() == mongo.ErrNoDocuments {
+			log.Print("can not find document with id: ", item.ID)
 			continue
 		}
 		err := docres.Decode(&doc)
 		if err != nil {
-			return nil, err
+			log.Printf("decode error: %v", err)
+			continue
 		}
 		res = append(res, doc)
-		if len(res) == k {
-			return res, nil
-		}
 	}
 	return res, nil
 }
