@@ -3,15 +3,22 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 
 	"github.com/sunby/go-hnsw"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-const InternalDocName = "_m_doc"
-const InternalIdName = "_m_id"
+const (
+	InternalDocName       = "_m_doc"
+	InternalIdName        = "_m_id"
+	InternalEmbeddingName = "_m_embedding"
+	MetaPersistBatch      = 1000
+)
 
 var (
 	ErrCollectionNotFound  = errors.New("collection not found")
@@ -102,12 +109,13 @@ func (d *Data) Metadatas(metadatas []bson.M) *Data {
 
 type Collection struct {
 	*mongo.Collection
-	name      string
-	index     *HNSWIndex
-	embedding *CohereEmbedding
-	id        uint32
-	meta      *Meta
-	cfg       *Config
+	name          string
+	index         *HNSWIndex
+	embedding     *CohereEmbedding
+	id            uint32
+	nextPersistId uint32
+	meta          *Meta
+	cfg           *Config
 }
 
 func (c *Collection) Insert(data *Data) error {
@@ -115,56 +123,53 @@ func (c *Collection) Insert(data *Data) error {
 		return ErrFieldLengthMismatch
 	}
 
+	embeddings, err := c.embedding.GetEmbedding(data.documents)
+	if err != nil {
+		return err
+	}
+
+	// insert into document database
 	var insertions []interface{}
 	for i, doc := range data.metadatas {
 		doc[InternalDocName] = data.documents[i]
 		c.id++
 		doc[InternalIdName] = c.id
+		doc[InternalEmbeddingName] = embeddings[i]
 		insertions = append(insertions, doc)
 	}
 
-	_, err := c.InsertMany(context.TODO(), insertions)
+	_, err = c.InsertMany(context.TODO(), insertions)
 	if err != nil {
 		return err
 	}
 
-	embeddings, err := c.getEmbeddings(data)
-	if err != nil {
-		return err
-	}
-
+	// update hnsw index
 	for i, embedding := range embeddings {
 		c.index.Add(embedding, data.metadatas[i][InternalIdName].(uint32))
+	}
+
+	if c.id > c.nextPersistId {
+		// TODO: put this in a background goroutine
+		c.nextPersistId += MetaPersistBatch
+		if err := c.persistMeta(context.Background()); err != nil {
+			return err
+		}
 	}
 
 	return nil
 }
 
-func (c *Collection) getEmbeddings(data *Data) ([][]float32, error) {
-	res := make([][]float32, 0, len(data.documents))
-	i := 0
-	l := len(data.documents)
-	for ; i < l; i += CohereMaxTexts {
-		if l-i <= CohereMaxTexts {
-			e, err := c.embedding.GetEmbedding(data.documents[i:l])
-			if err != nil {
-				return nil, err
-			}
-			res = append(res, e...)
-			break
-		}
-		e, err := c.embedding.GetEmbedding(data.documents[i : i+CohereMaxTexts])
-		if err != nil {
-			return nil, err
-		}
-		res = append(res, e...)
-
+func (c *Collection) persistMeta(ctx context.Context) error {
+	indexFile := fmt.Sprintf("%s/%s/%s_%d.hnsw", c.cfg.DB.Dir, "index", c.name, c.id)
+	if err := c.index.Save(indexFile); err != nil {
+		return err
 	}
-	return res, nil
+	return c.meta.Write(ctx, c.name, indexFile, c.index.ID(), c.index.Size())
 }
 
 func getHnswFilterFunc(collection *Collection, filter interface{}) hnsw.FilterFunc {
 	return func(id uint32) bool {
+		log.Printf("try to find id: %d", id)
 		andFilter := bson.D{
 			{"$and",
 				bson.A{
@@ -191,7 +196,7 @@ func (c *Collection) Query(document string, k int, filter interface{}) ([]bson.M
 	if err != nil {
 		return nil, err
 	}
-	ids := c.index.Search(embedding[0], 10*k, k, getHnswFilterFunc(c, filter))
+	ids := c.index.Search(embedding[0], 200, k, getHnswFilterFunc(c, filter))
 	var res []bson.M
 	for {
 		item := ids.Pop()
@@ -242,7 +247,8 @@ func (c *Collection) getNextID(ctx context.Context) (uint32, error) {
 		return 0, nil
 	}
 
-	return res[0]["max"].(uint32), nil
+	log.Printf("max id: %d", res[0][InternalIdName].(int64))
+	return (uint32)(res[0][InternalIdName].(int64)), nil
 }
 
 func (c *Collection) loadIndexIfExists(ctx context.Context) error {
@@ -276,14 +282,37 @@ func (c *Collection) loadIndexIfExists(ctx context.Context) error {
 	return nil
 }
 
+func (c *Collection) updateIndexFromLastId(ctx context.Context) error {
+	// find id >= lastIndexId by sort
+	filter := bson.D{{InternalIdName, bson.D{{"$gt", c.index.ID()}}}}
+	cursor, err := c.Collection.Find(ctx, filter, options.Find().SetSort(bson.D{{InternalIdName, 1}}))
+	if err != nil {
+		return err
+	}
+	for cursor.Next(ctx) {
+		var doc bson.M
+		if err := cursor.Decode(&doc); err != nil {
+			return err
+		}
+
+		c.index.Add(Convert2Float32(doc[InternalEmbeddingName].(primitive.A)), (uint32)(doc[InternalIdName].(int64)))
+	}
+	return nil
+}
+
 func (c *Collection) init(ctx context.Context) error {
 	id, err := c.getNextID(ctx)
 	if err != nil {
 		return err
 	}
 	c.id = id
+	c.nextPersistId = c.id + MetaPersistBatch
 
 	if err := c.loadIndexIfExists(ctx); err != nil {
+		return err
+	}
+
+	if err := c.updateIndexFromLastId(ctx); err != nil {
 		return err
 	}
 

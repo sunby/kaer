@@ -72,7 +72,7 @@ func StartEmbeddedPostgres(cfg *Config) (*postgres.EmbeddedPostgres, error) {
 			Username(cfg.DB.PostgresUsername).
 			Password(cfg.DB.PostgresPassword).
 			Port(cfg.DB.PostresPort).
-			DataPath(cfg.DB.Dir))
+			DataPath(fmt.Sprintf("%s/%s", cfg.DB.Dir, "postgres")))
 	if err := database.Start(); err != nil {
 		return nil, err
 	}

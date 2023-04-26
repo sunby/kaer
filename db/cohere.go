@@ -17,9 +17,21 @@ type CohereEmbedding struct {
 }
 
 func (c *CohereEmbedding) GetEmbedding(texts []string) ([][]float32, error) {
-	if len(texts) > CohereMaxTexts {
-		return nil, ErrTooManyTexts
+
+	res := make([][]float32, 0, len(texts))
+	l := len(texts)
+	for i := 0; i < l; i += CohereMaxTexts {
+		end := min(l, i+CohereMaxTexts)
+		embeddings, err := c.getEmbedding(texts[i:end])
+		if err != nil {
+			return nil, err
+		}
+		res = append(res, embeddings...)
 	}
+	return res, nil
+}
+
+func (c *CohereEmbedding) getEmbedding(texts []string) ([][]float32, error) {
 	response, err := c.client.Embed(cohere.EmbedOptions{
 		Texts: texts,
 		Model: c.cfg.Model,
@@ -29,7 +41,11 @@ func (c *CohereEmbedding) GetEmbedding(texts []string) ([][]float32, error) {
 		return nil, err
 	}
 
-	return Convert2Float32(response.Embeddings), nil
+	res := make([][]float32, len(response.Embeddings))
+	for i := range res {
+		res[i] = Convert2Float32(response.Embeddings[i])
+	}
+	return res, nil
 }
 
 func NewCohereEmbedding(cfg *CohereCfg) (*CohereEmbedding, error) {
@@ -43,13 +59,17 @@ func NewCohereEmbedding(cfg *CohereCfg) (*CohereEmbedding, error) {
 	}, nil
 }
 
-func Convert2Float32(embeddings [][]float64) [][]float32 {
-	res := make([][]float32, len(embeddings))
-	for i, embedding := range embeddings {
-		res[i] = make([]float32, len(embedding))
-		for j, val := range embedding {
-			res[i][j] = float32(val)
-		}
+func Convert2Float32[T any](embedding []T) []float32 {
+	res := make([]float32, len(embedding))
+	for i, val := range embedding {
+		res[i] = (float32)(any(val).(float64))
 	}
 	return res
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
