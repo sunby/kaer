@@ -39,20 +39,19 @@ func main() {
 		kaer.Close()
 	}()
 
-	database := kaer.Database("test")
-	coll, err := database.CreateCollection(context.TODO(), "test")
-	// coll, err := database.GetCollection(context.TODO(), "test")
+	// coll, err := kaer.CreateCollection(context.TODO(), "test")
+	coll, err := kaer.GetCollection(context.TODO(), "test")
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	data := &db.Data{}
-	data = data.Documents([]string{"hello world", "nihao, shijie"}).
-		Metadatas([]bson.M{
-			{"attr1": 1, "attr2": "str1"},
-			{"attr1": 200, "attr2": "str2"},
-		})
-	err = coll.Insert(data)
+	// data := &db.Data{}
+	// data = data.Documents([]string{"hello world", "nihao, shijie"}).
+	// 	Metadatas([]bson.M{
+	// 		{"attr1": 1, "attr2": "str1"},
+	// 		{"attr1": 200, "attr2": "str2"},
+	// 	})
+	// err = coll.Insert(data)
 	if err != nil {
 		log.Fatal(err)
 	}

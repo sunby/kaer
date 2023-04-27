@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/sunby/go-hnsw"
+	"github.com/RoaringBitmap/roaring"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -29,6 +29,10 @@ var (
 type Data struct {
 	documents []string
 	metadatas []bson.M
+}
+
+func NewData() *Data {
+	return &Data{}
 }
 
 func (d *Data) Documents(documents []string) *Data {
@@ -102,55 +106,36 @@ func (c *Collection) persistMeta(ctx context.Context) error {
 	return c.meta.Write(ctx, info)
 }
 
-func getHnswFilterFunc(collection *Collection, filter interface{}) hnsw.FilterFunc {
-	return func(id uint32) bool {
-		log.Printf("try to find id: %d", id)
-		andFilter := bson.D{
-			{"$and",
-				bson.A{
-					bson.D{{InternalIdName, id}},
-					filter,
-				},
-			},
-		}
-		var doc bson.M
-		docres := collection.FindOne(context.TODO(), andFilter)
-		if docres.Err() == mongo.ErrNoDocuments {
-			return false
-		}
-		err := docres.Decode(&doc)
-		if err != nil {
-			log.Printf("decode error: %v", err)
-			return false
-		}
-		return true
-	}
-}
 func (c *Collection) Query(document string, k int, filter interface{}) ([]bson.M, error) {
+	// first query in document database
+	cursor, err := c.Collection.Find(context.TODO(), filter)
+	if err != nil {
+		return nil, err
+	}
+	var filteredData []bson.M
+	if err := cursor.All(context.TODO(), &filteredData); err != nil {
+		return nil, err
+	}
+
+	// create roaring bitmap
+	bitset := roaring.NewBitmap()
+	documents := make(map[uint32]bson.M)
+	for _, doc := range filteredData {
+		docId := (uint32)(doc[InternalIdName].(int64))
+		bitset.Add(docId)
+		documents[docId] = doc
+	}
+
 	embedding, err := c.embedding.GetEmbedding([]string{document})
 	if err != nil {
 		return nil, err
 	}
-	ids := c.index.Search(embedding[0], 200, k, getHnswFilterFunc(c, filter))
+
+	// search in hnsw index
+	ids := c.index.Search(embedding[0], 200, k, bitset.Contains)
 	var res []bson.M
-	for {
-		item := ids.Pop()
-		if item == nil {
-			break
-		}
-		filter := bson.D{{InternalIdName, item.ID}}
-		docres := c.FindOne(context.TODO(), filter)
-		var doc bson.M
-		if docres.Err() == mongo.ErrNoDocuments {
-			log.Print("can not find document with id: ", item.ID)
-			continue
-		}
-		err := docres.Decode(&doc)
-		if err != nil {
-			log.Printf("decode error: %v", err)
-			continue
-		}
-		res = append(res, doc)
+	for item := ids.Pop(); item != nil; item = ids.Pop() {
+		res = append(res, documents[item.ID])
 	}
 	return res, nil
 }

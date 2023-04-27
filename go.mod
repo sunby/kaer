@@ -4,6 +4,7 @@ go 1.18
 
 require (
 	github.com/FerretDB/FerretDB v1.0.0
+	github.com/RoaringBitmap/roaring v1.2.3
 	github.com/cohere-ai/cohere-go v0.2.0
 	github.com/fergusstrange/embedded-postgres v1.21.0
 	github.com/sunby/go-hnsw v0.0.0-20230426103814-5658b9c4afe9
@@ -55,6 +56,7 @@ require (
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/mohae/deepcopy v0.0.0-20170929034955-c48cc78d4826 // indirect
 	github.com/montanaflynn/stats v0.0.0-20171201202039-1bf9dbcd8cbe // indirect
+	github.com/mschoch/smat v0.2.0 // indirect
 	github.com/perimeterx/marshmallow v1.1.4 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
