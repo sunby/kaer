@@ -3,6 +3,7 @@ module github.com/sunby/kaer
 go 1.18
 
 require (
+	github.com/BurntSushi/toml v0.3.1
 	github.com/FerretDB/FerretDB v1.0.0
 	github.com/RoaringBitmap/roaring v1.2.3
 	github.com/cohere-ai/cohere-go v0.2.0

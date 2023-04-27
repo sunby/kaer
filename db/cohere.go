@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	cohere "github.com/cohere-ai/cohere-go"
+	"github.com/sunby/kaer/config"
 )
 
 const CohereMaxTexts = 96
@@ -13,7 +14,7 @@ var ErrTooManyTexts error = errors.New("too many texts")
 
 type CohereEmbedding struct {
 	client *cohere.Client
-	cfg    *CohereCfg
+	cfg    *config.CohereCfg
 }
 
 func (c *CohereEmbedding) GetEmbedding(texts []string) ([][]float32, error) {
@@ -48,8 +49,9 @@ func (c *CohereEmbedding) getEmbedding(texts []string) ([][]float32, error) {
 	return res, nil
 }
 
-func NewCohereEmbedding(cfg *CohereCfg) (*CohereEmbedding, error) {
+func NewCohereEmbedding(cfg *config.CohereCfg) (*CohereEmbedding, error) {
 	cli, err := cohere.CreateClient(cfg.APIKey)
+
 	if err != nil {
 		return nil, err
 	}

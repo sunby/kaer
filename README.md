@@ -12,8 +12,14 @@ At present, you can utilize this project in a Golang application, and we will so
 
 Currently, we only support insertion and querying functions, and you can use any document query language when querying. The data will be automatically persisted on disk and can be recovered upon the next opening.
 
+### Example
 You can find codes in main.go.
 ```golang
+cfg, err := config.ParseFrom("./config/config.toml.example")
+if err != nil {
+	log.Fatal(err)
+}
+
 kaer, err := db.CreateKaer(&cfg)
 if err != nil {
 	log.Fatal(err)
@@ -22,25 +28,30 @@ defer func() {
 	kaer.Close()
 }()
 
-database := kaer.Database("test")
-coll, err := database.CreateCollection(context.TODO(), "test")
+coll, err := kaer.CreateCollection(context.TODO(), "test")
+// coll, err := kaer.GetCollection(context.TODO(), "test")
 if err != nil {
 	log.Fatal(err)
 }
 
-data := &db.Data{}
-data = data.Documents([]string{"hello world", "nihao, shijie"}).Metadatas([]bson.M{
-	bson.M{"attr1": 1, "attr2": "str1"}, bson.M{"attr1": 200, "attr2": "str2"},
-})
+data := db.NewData().
+	Documents([]string{"hello world", "nihao, shijie"}).
+	Metadatas([]bson.M{
+		{"attr1": 1, "attr2": "str1"},
+		{"attr1": 200, "attr2": "str2"},
+	})
+
 err = coll.Insert(data)
 if err != nil {
 	log.Fatal(err)
 }
+
 res, err := coll.Query("h, world", 1, bson.D{{"attr1", bson.D{{"$eq", 1}}}})
 if err != nil {
 	log.Fatal(err)
 }
 
+log.Printf("Data: %v", res)
 ```
 
 # Dependencies

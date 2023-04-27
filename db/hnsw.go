@@ -2,6 +2,7 @@ package db
 
 import (
 	hnsw "github.com/sunby/go-hnsw"
+	"github.com/sunby/kaer/config"
 )
 
 const HnswGrowSize = 1000
@@ -29,7 +30,7 @@ func (h *HNSWIndex) Size() uint32 {
 	return h.size
 }
 
-func NewHNSWIndex(cfg *HNSWCfg, dim int) *HNSWIndex {
+func NewHNSWIndex(cfg *config.HNSWCfg, dim int) *HNSWIndex {
 	zero := make([]float32, dim)
 	index := hnsw.New(cfg.M, cfg.EfConstruction, zero)
 	return &HNSWIndex{

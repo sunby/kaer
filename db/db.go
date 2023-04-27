@@ -7,6 +7,7 @@ import (
 	"log"
 
 	"github.com/RoaringBitmap/roaring"
+	"github.com/sunby/kaer/config"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -53,7 +54,7 @@ type Collection struct {
 	id            uint32
 	nextPersistId uint32
 	meta          *Meta
-	cfg           *Config
+	cfg           *config.Config
 }
 
 func (c *Collection) Insert(data *Data) error {
@@ -61,6 +62,7 @@ func (c *Collection) Insert(data *Data) error {
 		return ErrFieldLengthMismatch
 	}
 
+	log.Printf("embdedding: %v", c.embedding)
 	embeddings, err := c.embedding.GetEmbedding(data.documents)
 	if err != nil {
 		return err
@@ -174,7 +176,7 @@ func (c *Collection) getNextID(ctx context.Context) (uint32, error) {
 func (c *Collection) loadIndexIfExists(ctx context.Context) error {
 	m, err := c.meta.Read(ctx, c.name)
 	if err == mongo.ErrNoDocuments {
-		c.index = NewHNSWIndex(&c.cfg.HNSW, CohereModel2Dim[c.cfg.Cohere.Model])
+		c.index = NewHNSWIndex(&c.cfg.HNSW, config.CohereModel2Dim[c.cfg.Cohere.Model])
 		return nil
 	}
 
@@ -223,14 +225,14 @@ func (c *Collection) init(ctx context.Context) error {
 	return nil
 }
 
-func NewCollection(ctx context.Context, meta *Meta, collection *mongo.Collection, name string, cfg *Config) (*Collection, error) {
+func NewCollection(ctx context.Context, meta *Meta, collection *mongo.Collection, name string, cfg *config.Config) (*Collection, error) {
 	embedding, err := NewCohereEmbedding(&cfg.Cohere)
 	if err != nil {
 		return nil, err
 	}
 	c := &Collection{
 		Collection: collection,
-		index:      NewHNSWIndex(&cfg.HNSW, CohereModel2Dim[cfg.Cohere.Model]),
+		index:      NewHNSWIndex(&cfg.HNSW, config.CohereModel2Dim[cfg.Cohere.Model]),
 		name:       name,
 		embedding:  embedding,
 		meta:       meta,

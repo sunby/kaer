@@ -1,0 +1,17 @@
+title = "kaer config file"
+
+[cohere]
+api_key = "OrQd40L1gUacvSWLD9wVj8Sg01YNGDz34p8Q8QT3"
+model = "multilingual-22-12"
+
+[db]
+persist_dir = "/tmp/kaer/"
+postgres_username = "postgres"
+postgres_password = "password"
+postgres_port = 5432
+ferretdb_tcp = "localhost:8080"
+ferretdb_handler = "pg"
+
+[hnsw]
+m = 32
+ef_construction = 400

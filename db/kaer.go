@@ -6,6 +6,7 @@ import (
 
 	"github.com/FerretDB/FerretDB/ferretdb"
 	postgres "github.com/fergusstrange/embedded-postgres"
+	"github.com/sunby/kaer/config"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -16,7 +17,7 @@ const kaerDefaultDb = "_kaer_default_db"
 type Kaer struct {
 	db               *mongo.Database
 	collections      map[string]*Collection
-	cfg              *Config
+	cfg              *config.Config
 	done             chan error
 	cancel           context.CancelFunc
 	embeddedPostgres *postgres.EmbeddedPostgres
@@ -80,7 +81,7 @@ func (k *Kaer) Close() error {
 	return k.embeddedPostgres.Stop()
 }
 
-func CreateKaer(cfg *Config) (*Kaer, error) {
+func CreateKaer(cfg *config.Config) (*Kaer, error) {
 	postgresDB, err := StartEmbeddedPostgres(cfg)
 	if err != nil {
 		return nil, err
@@ -115,7 +116,7 @@ func CreateKaer(cfg *Config) (*Kaer, error) {
 	}, nil
 }
 
-func StartEmbeddedPostgres(cfg *Config) (*postgres.EmbeddedPostgres, error) {
+func StartEmbeddedPostgres(cfg *config.Config) (*postgres.EmbeddedPostgres, error) {
 	database := postgres.NewDatabase(
 		postgres.
 			DefaultConfig().
@@ -129,7 +130,7 @@ func StartEmbeddedPostgres(cfg *Config) (*postgres.EmbeddedPostgres, error) {
 	return database, nil
 }
 
-func StartFerretDB(database *postgres.EmbeddedPostgres, cfg *Config) (*ferretdb.FerretDB, error) {
+func StartFerretDB(database *postgres.EmbeddedPostgres, cfg *config.Config) (*ferretdb.FerretDB, error) {
 	f, err := ferretdb.New(&ferretdb.Config{
 		Listener: ferretdb.ListenerConfig{
 			TCP: cfg.DB.FerretDBTcp,
