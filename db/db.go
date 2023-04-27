@@ -26,72 +26,6 @@ var (
 	ErrMetaCorrupted       = errors.New("meta corrupted")
 )
 
-type DB struct {
-	*mongo.Database
-	collections map[string]*Collection
-	cfg         *Config
-	meta        *Meta
-}
-
-func (db *DB) CreateCollection(ctx context.Context, name string) (*Collection, error) {
-	err := db.Database.CreateCollection(ctx, name)
-	if err != nil {
-		return nil, err
-	}
-	c := db.Database.Collection(name)
-	collection, err := NewCollection(ctx, db.meta, c, name, db.cfg)
-	if err != nil {
-		return nil, err
-	}
-	db.collections[name] = collection
-	return collection, nil
-}
-
-func (db *DB) GetCollection(ctx context.Context, name string) (*Collection, error) {
-	if collection, ok := db.collections[name]; ok {
-		return collection, nil
-	}
-
-	collectionNames, err := db.Database.ListCollectionNames(ctx, bson.M{"name": name})
-	if err != nil {
-		return nil, err
-	}
-
-	if collectionNames == nil || len(collectionNames) == 0 {
-		return nil, ErrCollectionNotFound
-	}
-
-	c := db.Database.Collection(name)
-	collection, err := NewCollection(ctx, db.meta, c, name, db.cfg)
-	if err != nil {
-		return nil, err
-	}
-	db.collections[name] = collection
-	return collection, nil
-}
-
-func (db *DB) DropCollection(ctx context.Context, name string) error {
-	err := db.Database.Collection(name).Drop(ctx)
-	if err != nil {
-		return err
-	}
-	err = db.meta.Drop(ctx, name)
-	if err != nil {
-		return err
-	}
-	delete(db.collections, name)
-	return nil
-}
-
-func NewDB(meta *Meta, docdb *mongo.Database, cfg *Config) *DB {
-	return &DB{
-		Database:    docdb,
-		collections: make(map[string]*Collection),
-		cfg:         cfg,
-		meta:        meta,
-	}
-}
-
 type Data struct {
 	documents []string
 	metadatas []bson.M
@@ -164,7 +98,8 @@ func (c *Collection) persistMeta(ctx context.Context) error {
 	if err := c.index.Save(indexFile); err != nil {
 		return err
 	}
-	return c.meta.Write(ctx, c.name, indexFile, c.index.ID(), c.index.Size())
+	info := newMetaInfo(c.name, indexFile, c.index.ID(), c.index.Size())
+	return c.meta.Write(ctx, info)
 }
 
 func getHnswFilterFunc(collection *Collection, filter interface{}) hnsw.FilterFunc {
@@ -252,29 +187,13 @@ func (c *Collection) getNextID(ctx context.Context) (uint32, error) {
 }
 
 func (c *Collection) loadIndexIfExists(ctx context.Context) error {
-	m := c.meta.Read(ctx, c.name)
-	if m.Err() == mongo.ErrNoDocuments {
+	m, err := c.meta.Read(ctx, c.name)
+	if err == mongo.ErrNoDocuments {
 		c.index = NewHNSWIndex(&c.cfg.HNSW, CohereModel2Dim[c.cfg.Cohere.Model])
 		return nil
 	}
 
-	var res bson.M
-	if err := m.Decode(&res); err != nil {
-		return err
-	}
-
-	pathValue := res[HnswIndexPathKey]
-	idValue := res[HnswIdKey]
-	sizeValue := res[HnswSizeKey]
-
-	if pathValue == nil || idValue == nil || sizeValue == nil {
-		return ErrMetaCorrupted
-	}
-
-	indexfile := pathValue.(string)
-	id := idValue.(uint32)
-	size := sizeValue.(uint32)
-	index, err := NewHNSWIndexFromFile(indexfile, size, id)
+	index, err := NewHNSWIndexFromFile(m.hnswFile, m.hnswSize, m.hnswId)
 	if err != nil {
 		return err
 	}

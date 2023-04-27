@@ -6,11 +6,16 @@ import (
 
 	"github.com/FerretDB/FerretDB/ferretdb"
 	postgres "github.com/fergusstrange/embedded-postgres"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
+const kaerDefaultDb = "_kaer_default_db"
+
 type Kaer struct {
+	db               *mongo.Database
+	collections      map[string]*Collection
 	cfg              *Config
 	done             chan error
 	cancel           context.CancelFunc
@@ -19,10 +24,54 @@ type Kaer struct {
 	meta             *Meta
 }
 
-// Get or create a database
-func (k *Kaer) Database(name string) *DB {
-	fdb := k.client.Database(name)
-	return NewDB(k.meta, fdb, k.cfg)
+func (k *Kaer) CreateCollection(ctx context.Context, name string) (*Collection, error) {
+	err := k.db.CreateCollection(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	c := k.db.Collection(name)
+	collection, err := NewCollection(ctx, k.meta, c, name, k.cfg)
+	if err != nil {
+		return nil, err
+	}
+	k.collections[name] = collection
+	return collection, nil
+}
+
+func (k *Kaer) GetCollection(ctx context.Context, name string) (*Collection, error) {
+	if collection, ok := k.collections[name]; ok {
+		return collection, nil
+	}
+
+	collectionNames, err := k.db.ListCollectionNames(ctx, bson.M{"name": name})
+	if err != nil {
+		return nil, err
+	}
+
+	if collectionNames == nil || len(collectionNames) == 0 {
+		return nil, ErrCollectionNotFound
+	}
+
+	c := k.db.Collection(name)
+	collection, err := NewCollection(ctx, k.meta, c, name, k.cfg)
+	if err != nil {
+		return nil, err
+	}
+	k.collections[name] = collection
+	return collection, nil
+}
+
+func (k *Kaer) DropCollection(ctx context.Context, name string) error {
+	err := k.db.Collection(name).Drop(ctx)
+	if err != nil {
+		return err
+	}
+	err = k.meta.Drop(ctx, name)
+	if err != nil {
+		return err
+	}
+	delete(k.collections, name)
+	return nil
 }
 
 func (k *Kaer) Close() error {
@@ -54,7 +103,6 @@ func CreateKaer(cfg *Config) (*Kaer, error) {
 		cancel()
 		return nil, err
 	}
-
 	return &Kaer{
 		cfg:              cfg,
 		done:             done,
@@ -62,6 +110,8 @@ func CreateKaer(cfg *Config) (*Kaer, error) {
 		embeddedPostgres: postgresDB,
 		client:           client,
 		meta:             NewMeta(client),
+		db:               client.Database(kaerDefaultDb),
+		collections:      make(map[string]*Collection),
 	}, nil
 }
 
